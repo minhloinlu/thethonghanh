@@ -1,0 +1,224 @@
+/*******************************************************
+ * WEB SCANNER CODE 39 - KHÔNG CẦN START/STOP "*"
+ * Google Apps Script
+ *******************************************************/
+
+const CONFIG = {
+  // Nếu đây là Apps Script gắn trực tiếp với Google Sheet,
+  // có thể để trống.
+  //
+  // Nếu là Apps Script độc lập, hãy điền Spreadsheet ID.
+  SPREADSHEET_ID: '',
+
+  // Để trống = sử dụng sheet đầu tiên.
+  // Ví dụ: 'Sheet1'
+  SHEET_NAME: '',
+
+  TIMEZONE: 'Asia/Ho_Chi_Minh',
+
+  // Header mong muốn
+  HEADER_TIME: 'Thời gian',
+  HEADER_MSSV: 'MSSV'
+};
+
+
+/**
+ * Mở Web App
+ */
+function doGet() {
+  return HtmlService
+    .createHtmlOutputFromFile('Index')
+    .setTitle('Quét mã vạch MSSV')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+
+/**
+ * Lấy Spreadsheet
+ */
+function getSpreadsheet_() {
+
+  if (CONFIG.SPREADSHEET_ID &&
+      CONFIG.SPREADSHEET_ID.trim() !== '') {
+
+    return SpreadsheetApp.openById(
+      CONFIG.SPREADSHEET_ID.trim()
+    );
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  if (!ss) {
+    throw new Error(
+      'Không tìm thấy Google Sheet. Hãy điền SPREADSHEET_ID trong Code.gs.'
+    );
+  }
+
+  return ss;
+}
+
+
+/**
+ * Lấy Sheet cần ghi dữ liệu
+ */
+function getTargetSheet_() {
+
+  const ss = getSpreadsheet_();
+
+  let sheet;
+
+  if (CONFIG.SHEET_NAME &&
+      CONFIG.SHEET_NAME.trim() !== '') {
+
+    sheet = ss.getSheetByName(
+      CONFIG.SHEET_NAME.trim()
+    );
+
+    if (!sheet) {
+      throw new Error(
+        'Không tìm thấy sheet: ' + CONFIG.SHEET_NAME
+      );
+    }
+
+  } else {
+
+    sheet = ss.getSheets()[0];
+  }
+
+  return sheet;
+}
+
+
+/**
+ * Tạo / kiểm tra tiêu đề
+ */
+function setupSheet_() {
+
+  const sheet = getTargetSheet_();
+
+  if (sheet.getRange('A1').getValue() === '') {
+    sheet.getRange('A1').setValue(CONFIG.HEADER_TIME);
+  }
+
+  if (sheet.getRange('B1').getValue() === '') {
+    sheet.getRange('B1').setValue(CONFIG.HEADER_MSSV);
+  }
+
+  // Định dạng
+  sheet.getRange('A:A')
+    .setNumberFormat('dd/MM/yyyy HH:mm:ss');
+
+  sheet.getRange('B:B')
+    .setNumberFormat('@');
+
+  return sheet;
+}
+
+
+/**
+ * Kiểm tra MSSV
+ *
+ * 25xxxxxxxx = 10 số
+ * 26xxxxxxxx = 10 số
+ * MSSV cũ = 8 số
+ */
+function validateMSSV_(mssv) {
+
+  mssv = String(mssv || '')
+    .trim()
+    .replace(/\s+/g, '');
+
+  // 25xxxxxxxx / 26xxxxxxxx
+  if (/^(25|26)\d{8}$/.test(mssv)) {
+    return true;
+  }
+
+  // MSSV cũ 8 số
+  if (/^\d{8}$/.test(mssv)) {
+    return true;
+  }
+
+  return false;
+}
+
+
+/**
+ * Ghi một lượt quét
+ */
+function saveScan(mssv) {
+
+  mssv = String(mssv || '')
+    .trim()
+    .replace(/\s+/g, '');
+
+  if (!validateMSSV_(mssv)) {
+
+    throw new Error(
+      'MSSV không hợp lệ: ' + mssv +
+      '\nMSSV mới phải có 10 số và bắt đầu bằng 25 hoặc 26. ' +
+      'MSSV cũ có 8 số.'
+    );
+  }
+
+
+  // Khóa để tránh 2 điện thoại ghi cùng lúc
+  const lock = LockService.getScriptLock();
+
+  lock.waitLock(15000);
+
+  try {
+
+    const sheet = setupSheet_();
+
+    const now = new Date();
+
+    const row = Math.max(
+      sheet.getLastRow() + 1,
+      2
+    );
+
+    // Đảm bảo cột MSSV là text
+    sheet
+      .getRange(row, 2)
+      .setNumberFormat('@');
+
+    sheet
+      .getRange(row, 1, 1, 2)
+      .setValues([
+        [now, mssv]
+      ]);
+
+    return {
+      success: true,
+
+      mssv: mssv,
+
+      time: Utilities.formatDate(
+        now,
+        CONFIG.TIMEZONE,
+        'dd/MM/yyyy HH:mm:ss'
+      ),
+
+      row: row
+    };
+
+  } finally {
+
+    lock.releaseLock();
+  }
+}
+
+
+/**
+ * Kiểm tra kết nối
+ */
+function testConnection() {
+
+  const sheet = setupSheet_();
+
+  return {
+    success: true,
+    spreadsheet: sheet.getParent().getName(),
+    sheet: sheet.getName()
+  };
+}
