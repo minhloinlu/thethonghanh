@@ -1,224 +1,439 @@
-/*******************************************************
- * WEB SCANNER CODE 39 - KHÔNG CẦN START/STOP "*"
- * Google Apps Script
- *******************************************************/
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QUÉT MÃ CODE 39 - MSSV</title>
+<style>
+:root{--red:#b40000;--dark:#171717;--muted:#666;--line:#ddd;--bg:#f5f6f8;--green:#14833b;--yellow:#f5c400}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:#171717}
+.wrap{max-width:900px;margin:auto;padding:18px}
+.card{background:#fff;border-radius:16px;padding:18px;box-shadow:0 4px 18px rgba(0,0,0,.08);margin-bottom:16px}
+h1{margin:0 0 6px;font-size:24px}
+.sub{color:var(--muted);font-size:14px}
+.camera{position:relative;background:#000;border-radius:14px;overflow:hidden;aspect-ratio:16/10}
+video{width:100%;height:100%;object-fit:cover;display:block}
+.scanbox{position:absolute;left:8%;right:8%;top:25%;height:50%;border:3px solid #fff;border-radius:12px;box-shadow:0 0 0 9999px rgba(0,0,0,.22)}
+.scanline{position:absolute;left:8%;right:8%;top:50%;height:2px;background:#ff2525;box-shadow:0 0 10px #ff2525}
+.status{margin-top:12px;padding:11px 13px;border-radius:10px;background:#f1f1f1;font-size:14px}
+.status.ok{background:#eaf8ef;color:var(--green)}
+.status.err{background:#fff0f0;color:#a00000}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+button{border:0;border-radius:10px;padding:12px 16px;font-weight:700;cursor:pointer}
+.primary{background:var(--red);color:#fff}.secondary{background:#eee;color:#222}
+input{flex:1;min-width:220px;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:16px}
+.big{font-size:34px;font-weight:800;letter-spacing:2px;text-align:center;padding:14px 5px}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th,td{padding:9px;border-bottom:1px solid #eee;text-align:left;font-size:14px}
+.note{font-size:13px;color:#666;line-height:1.5}
+.badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#eee;font-size:12px}
+@media(max-width:600px){h1{font-size:20px}.big{font-size:27px}.wrap{padding:10px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>QUÉT MÃ CODE 39 – MSSV</h1>
+    <div class="sub">Quét Code 39 bị thiếu ký tự Start/Stop <b>*</b></div>
+  </div>
 
-const CONFIG = {
-  // Nếu đây là Apps Script gắn trực tiếp với Google Sheet,
-  // có thể để trống.
-  //
-  // Nếu là Apps Script độc lập, hãy điền Spreadsheet ID.
-  SPREADSHEET_ID: '',
+  <div class="card">
+    <div class="camera">
+      <video id="video" autoplay muted playsinline></video>
+      <div class="scanbox"></div>
+      <div class="scanline"></div>
+    </div>
+    <div id="status" class="status">Đang khởi động camera…</div>
+    <div class="row">
+      <button id="startBtn" class="primary">MỞ CAMERA</button>
+      <button id="stopBtn" class="secondary">DỪNG CAMERA</button>
+      <button id="beepBtn" class="secondary">ÂM BÁO: BẬT</button>
+    </div>
+  </div>
 
-  // Để trống = sử dụng sheet đầu tiên.
-  // Ví dụ: 'Sheet1'
-  SHEET_NAME: '',
+  <div class="card">
+    <div class="sub">MSSV vừa quét</div>
+    <div id="current" class="big">—</div>
+    <div class="row">
+      <input id="manual" inputmode="numeric" maxlength="10" placeholder="Nhập MSSV thủ công">
+      <button id="manualBtn" class="primary">GHI MSSV</button>
+    </div>
+    <div class="note" style="margin-top:8px">
+      MSSV khóa 25/26: 10 số. MSSV từ khóa 24 trở về trước: 8 số.
+    </div>
+  </div>
 
-  TIMEZONE: 'Asia/Ho_Chi_Minh',
+  <div class="card">
+    <b>Lịch sử phiên quét</b>
+    <span class="badge" id="count">0</span>
+    <table>
+      <thead><tr><th>Thời gian</th><th>MSSV</th><th>Trạng thái</th></tr></thead>
+      <tbody id="history"></tbody>
+    </table>
+  </div>
 
-  // Header mong muốn
-  HEADER_TIME: 'Thời gian',
-  HEADER_MSSV: 'MSSV'
+  <div class="card">
+    <div class="note">
+      API Google Apps Script đã được cấu hình sẵn. Trang này chạy độc lập trên GitHub Pages.
+    </div>
+  </div>
+</div>
+
+<canvas id="canvas" style="display:none"></canvas>
+
+<script>
+'use strict';
+
+/* ================= API GOOGLE APPS SCRIPT ================= */
+const API_URL =
+  "https://script.google.com/macros/s/AKfycbwjnJqWUqzWApMx0c_TipCrm_-dI5bWdOwPqbjaiBscA7CR7NwcTJfS8QioZK8tvUMH/exec";
+
+/* ================= CODE 39 =================
+   Mỗi ký tự Code 39 có 9 phần tử đen/trắng xen kẽ,
+   trong đó đúng 3 phần tử là "wide".
+   Bảng dưới đây là encoding chuẩn của Code 39.
+*/
+const CODE39_CHARS =
+  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%";
+
+const CODE39_ENCODINGS = [
+  0x034,0x121,0x061,0x160,0x031,0x130,0x070,0x025,0x124,0x064,
+  0x109,0x049,0x148,0x019,0x118,0x058,0x00d,0x10c,0x04c,0x01c,
+  0x103,0x043,0x142,0x013,0x112,0x052,0x007,0x106,0x046,0x016,
+  0x181,0x0c1,0x1c0,0x091,0x190,0x1a0,0x0c4,0x094,0x0a8,0x0a2,
+  0x0a1,0x0a4,0x0c8,0x0c2,0x0c1,0x0c4,0x0a8,0x0a2,0x0a1,0x0a4
+];
+
+// Dùng ánh xạ theo bit pattern của 9 phần tử.
+// Encoding của ZXing dùng 9 bit, bit 1 = wide.
+const ENCODING_TO_CHAR = {};
+for(let i=0;i<CODE39_CHARS.length && i<CODE39_ENCODINGS.length;i++){
+  ENCODING_TO_CHAR[CODE39_ENCODINGS[i]] = CODE39_CHARS[i];
+}
+
+// Bảng đầy đủ, rõ ràng cho các ký tự thường dùng.
+// Chỉ MSSV số nên phần số là quan trọng nhất.
+const DIGIT_PATTERNS = {
+  0:0x034, 1:0x121, 2:0x061, 3:0x160, 4:0x031,
+  5:0x130, 6:0x070, 7:0x025, 8:0x124, 9:0x064
 };
 
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', {willReadFrequently:true});
+const video = document.getElementById('video');
+const statusEl = document.getElementById('status');
+const currentEl = document.getElementById('current');
+const historyEl = document.getElementById('history');
+const countEl = document.getElementById('count');
+const manualEl = document.getElementById('manual');
 
-/**
- * Mở Web App
- */
-function doGet() {
-  return HtmlService
-    .createHtmlOutputFromFile('Index')
-    .setTitle('Quét mã vạch MSSV')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+let stream = null;
+let scanning = false;
+let scanTimer = null;
+let beepEnabled = true;
+let lastCode = '';
+let lastScanAt = 0;
+let totalScans = 0;
+
+function setStatus(text, type=''){
+  statusEl.textContent = text;
+  statusEl.className = 'status ' + type;
 }
 
-
-/**
- * Lấy Spreadsheet
- */
-function getSpreadsheet_() {
-
-  if (CONFIG.SPREADSHEET_ID &&
-      CONFIG.SPREADSHEET_ID.trim() !== '') {
-
-    return SpreadsheetApp.openById(
-      CONFIG.SPREADSHEET_ID.trim()
-    );
-  }
-
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-
-  if (!ss) {
-    throw new Error(
-      'Không tìm thấy Google Sheet. Hãy điền SPREADSHEET_ID trong Code.gs.'
-    );
-  }
-
-  return ss;
+function validMSSV(code){
+  return /^(?:25\d{8}|26\d{8}|(?:0\d|1\d|2[0-4])\d{6})$/.test(code);
 }
 
+/* ---------- Code 39 custom decoder ---------- */
 
-/**
- * Lấy Sheet cần ghi dữ liệu
- */
-function getTargetSheet_() {
+function getRuns(data, y, threshold){
+  const runs = [];
+  let black = data[y*canvas.width] < threshold;
+  let start = 0;
 
-  const ss = getSpreadsheet_();
+  for(let x=1;x<canvas.width;x++){
+    const isBlack = data[y*canvas.width+x*4] < threshold;
+    if(isBlack !== black){
+      runs.push({black, width:x-start});
+      start=x;
+      black=isBlack;
+    }
+  }
+  runs.push({black,width:canvas.width-start});
+  return runs;
+}
 
-  let sheet;
+function trimRuns(runs){
+  while(runs.length && runs[0].width < 2) runs.shift();
+  while(runs.length && runs[runs.length-1].width < 2) runs.pop();
+  return runs;
+}
 
-  if (CONFIG.SHEET_NAME &&
-      CONFIG.SHEET_NAME.trim() !== '') {
+function classifyNineWidths(widths){
+  const sorted = [...widths].sort((a,b)=>a-b);
+  const narrow = sorted.slice(0,6);
+  const wide = sorted.slice(6);
+  const n = narrow.reduce((a,b)=>a+b,0)/narrow.length;
+  const w = wide.reduce((a,b)=>a+b,0)/wide.length;
 
-    sheet = ss.getSheetByName(
-      CONFIG.SHEET_NAME.trim()
-    );
+  if(!n || w/n < 1.30 || w/n > 4.00) return null;
 
-    if (!sheet) {
-      throw new Error(
-        'Không tìm thấy sheet: ' + CONFIG.SHEET_NAME
-      );
+  // Exactly 3 wide elements.
+  const flags = widths.map(v => v >= (n+w)/2 ? 1 : 0);
+  if(flags.reduce((a,b)=>a+b,0)!==3) return null;
+
+  let enc=0;
+  for(const f of flags) enc=(enc<<1)|f;
+  return enc;
+}
+
+function decodeRuns(runs){
+  runs=trimRuns(runs);
+
+  // Code 39 has 9 alternating bars/spaces per character + a narrow gap
+  // between characters. Try several possible starting offsets.
+  for(let start=0; start<=Math.min(4,runs.length-9); start++){
+    let out='';
+    let pos=start;
+    let goodChars=0;
+
+    while(pos+9<=runs.length){
+      const group=runs.slice(pos,pos+9);
+      if(group.length<9) break;
+
+      // A character must start with black and alternate.
+      if(!group[0].black) break;
+
+      const widths=group.map(r=>r.width);
+      const enc=classifyNineWidths(widths);
+      if(enc===null) break;
+
+      const ch=ENCODING_TO_CHAR[enc];
+      if(!ch) break;
+
+      out += ch;
+      goodChars++;
+
+      pos += 9;
+
+      // After 9 elements normally comes a narrow white inter-character gap.
+      if(pos<runs.length && !runs[pos].black) pos++;
+
+      // MSSV is digits only, so stop when enough digits.
+      if(out.length>=10) break;
     }
 
-  } else {
-
-    sheet = ss.getSheets()[0];
+    if(goodChars>=1) return out;
   }
-
-  return sheet;
+  return '';
 }
 
+function decodeFrame(){
+  if(video.readyState < 2 || video.videoWidth < 100) return '';
 
-/**
- * Tạo / kiểm tra tiêu đề
- */
-function setupSheet_() {
+  // Chụp ảnh theo đúng tỉ lệ camera.
+  canvas.width = Math.min(960, video.videoWidth);
+  canvas.height = Math.round(canvas.width * video.videoHeight / video.videoWidth);
+  ctx.drawImage(video,0,0,canvas.width,canvas.height);
 
-  const sheet = getTargetSheet_();
+  const img=ctx.getImageData(0,0,canvas.width,canvas.height);
+  const data=img.data;
 
-  if (sheet.getRange('A1').getValue() === '') {
-    sheet.getRange('A1').setValue(CONFIG.HEADER_TIME);
+  const ys=[
+    Math.round(canvas.height*0.43),
+    Math.round(canvas.height*0.47),
+    Math.round(canvas.height*0.50),
+    Math.round(canvas.height*0.53),
+    Math.round(canvas.height*0.57)
+  ];
+
+  // Thử nhiều ngưỡng sáng/tối để chịu được ánh sáng khác nhau.
+  for(const threshold of [80,100,120,140,160,180,200]){
+    for(const y of ys){
+      const runs=getRuns(data,y,threshold);
+      let code=decodeRuns(runs);
+      if(/^\d+$/.test(code) && validMSSV(code)) return code;
+
+      // Thử chiều ngược lại.
+      const reversed=runs.slice().reverse().map(r=>({...r}));
+      code=decodeRuns(reversed);
+      if(/^\d+$/.test(code) && validMSSV(code)) return code;
+    }
   }
-
-  if (sheet.getRange('B1').getValue() === '') {
-    sheet.getRange('B1').setValue(CONFIG.HEADER_MSSV);
-  }
-
-  // Định dạng
-  sheet.getRange('A:A')
-    .setNumberFormat('dd/MM/yyyy HH:mm:ss');
-
-  sheet.getRange('B:B')
-    .setNumberFormat('@');
-
-  return sheet;
+  return '';
 }
 
+/* ---------- API ---------- */
 
-/**
- * Kiểm tra MSSV
- *
- * 25xxxxxxxx = 10 số
- * 26xxxxxxxx = 10 số
- * MSSV cũ = 8 số
- */
-function validateMSSV_(mssv) {
+async function saveToSheet(code){
+  code=String(code).trim();
 
-  mssv = String(mssv || '')
-    .trim()
-    .replace(/\s+/g, '');
-
-  // 25xxxxxxxx / 26xxxxxxxx
-  if (/^(25|26)\d{8}$/.test(mssv)) {
-    return true;
+  if(!validMSSV(code)){
+    throw new Error('MSSV không đúng định dạng.');
   }
 
-  // MSSV cũ 8 số
-  if (/^\d{8}$/.test(mssv)) {
-    return true;
-  }
+  /*
+   * no-cors được dùng vì trang nằm trên GitHub Pages còn API ở Apps Script.
+   * text/plain là request đơn giản, không tạo CORS preflight.
+   * Với no-cors, trình duyệt không cho đọc response; nhưng request vẫn được gửi.
+   */
+  await fetch(API_URL,{
+    method:'POST',
+    mode:'no-cors',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify({mssv:code})
+  });
 
-  return false;
+  return true;
 }
 
+async function submitCode(code, source='camera'){
+  code=String(code||'').replace(/\s+/g,'').trim();
 
-/**
- * Ghi một lượt quét
- */
-function saveScan(mssv) {
-
-  mssv = String(mssv || '')
-    .trim()
-    .replace(/\s+/g, '');
-
-  if (!validateMSSV_(mssv)) {
-
-    throw new Error(
-      'MSSV không hợp lệ: ' + mssv +
-      '\nMSSV mới phải có 10 số và bắt đầu bằng 25 hoặc 26. ' +
-      'MSSV cũ có 8 số.'
-    );
+  if(!validMSSV(code)){
+    if(source==='manual') setStatus('MSSV không hợp lệ.', 'err');
+    return;
   }
 
+  const now=Date.now();
 
-  // Khóa để tránh 2 điện thoại ghi cùng lúc
-  const lock = LockService.getScriptLock();
+  // Chặn quét lặp cùng một vé trong 2 giây.
+  if(code===lastCode && now-lastScanAt<2000) return;
+  lastCode=code;
+  lastScanAt=now;
 
-  lock.waitLock(15000);
+  currentEl.textContent=code;
+  setStatus('Đã nhận ' + code + '. Đang ghi vào Google Sheet…');
 
-  try {
+  try{
+    await saveToSheet(code);
 
-    const sheet = setupSheet_();
+    totalScans++;
+    countEl.textContent=totalScans;
+    addHistory(code,'Đã gửi');
+    setStatus('✓ Đã ghi MSSV ' + code + ' vào hệ thống.', 'ok');
 
-    const now = new Date();
-
-    const row = Math.max(
-      sheet.getLastRow() + 1,
-      2
-    );
-
-    // Đảm bảo cột MSSV là text
-    sheet
-      .getRange(row, 2)
-      .setNumberFormat('@');
-
-    sheet
-      .getRange(row, 1, 1, 2)
-      .setValues([
-        [now, mssv]
-      ]);
-
-    return {
-      success: true,
-
-      mssv: mssv,
-
-      time: Utilities.formatDate(
-        now,
-        CONFIG.TIMEZONE,
-        'dd/MM/yyyy HH:mm:ss'
-      ),
-
-      row: row
-    };
-
-  } finally {
-
-    lock.releaseLock();
+    if(beepEnabled) beep();
+  }catch(err){
+    addHistory(code,'Lỗi gửi');
+    setStatus('Không gửi được MSSV: ' + (err.message||err), 'err');
   }
 }
 
-
-/**
- * Kiểm tra kết nối
- */
-function testConnection() {
-
-  const sheet = setupSheet_();
-
-  return {
-    success: true,
-    spreadsheet: sheet.getParent().getName(),
-    sheet: sheet.getName()
-  };
+function addHistory(code,result){
+  const tr=document.createElement('tr');
+  tr.innerHTML='<td>'+new Date().toLocaleTimeString('vi-VN')+
+    '</td><td><b>'+escapeHtml(code)+'</b></td><td>'+
+    escapeHtml(result)+'</td>';
+  historyEl.prepend(tr);
+  while(historyEl.children.length>20) historyEl.lastElementChild.remove();
 }
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g,m=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[m]));
+}
+
+function beep(){
+  try{
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC)return;
+    const ac=new AC();
+    const osc=ac.createOscillator();
+    const gain=ac.createGain();
+    osc.frequency.value=1000;
+    gain.gain.value=.06;
+    osc.connect(gain);gain.connect(ac.destination);
+    osc.start();
+    osc.stop(ac.currentTime+.12);
+  }catch(e){}
+}
+
+/* ---------- Camera ---------- */
+
+async function startCamera(){
+  if(stream) return;
+
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    setStatus('Trình duyệt không hỗ trợ camera. Hãy dùng Chrome/Edge và HTTPS.', 'err');
+    return;
+  }
+
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({
+      video:{
+        facingMode:{ideal:'environment'},
+        width:{ideal:1280},
+        height:{ideal:720},
+        frameRate:{ideal:30,max:30}
+      },
+      audio:false
+    });
+
+    video.srcObject=stream;
+    await video.play();
+    scanning=true;
+    setStatus('Camera đã mở. Đưa mã vạch vào khung quét…','ok');
+    scanLoop();
+  }catch(err){
+    setStatus('Không mở được camera: '+err.message,'err');
+  }
+}
+
+function stopCamera(){
+  scanning=false;
+  if(scanTimer)cancelAnimationFrame(scanTimer);
+  scanTimer=null;
+
+  if(stream){
+    stream.getTracks().forEach(t=>t.stop());
+    stream=null;
+  }
+  video.srcObject=null;
+  setStatus('Camera đã dừng.');
+}
+
+function scanLoop(){
+  if(!scanning)return;
+
+  // Không xử lý quá dày để máy yếu vẫn chạy ổn.
+  if(!scanLoop.last || performance.now()-scanLoop.last>140){
+    scanLoop.last=performance.now();
+    try{
+      const code=decodeFrame();
+      if(code) submitCode(code,'camera');
+    }catch(e){}
+  }
+
+  scanTimer=requestAnimationFrame(scanLoop);
+}
+
+/* ---------- Events ---------- */
+
+document.getElementById('startBtn').onclick=startCamera;
+document.getElementById('stopBtn').onclick=stopCamera;
+
+document.getElementById('beepBtn').onclick=()=>{
+  beepEnabled=!beepEnabled;
+  document.getElementById('beepBtn').textContent=
+    'ÂM BÁO: '+(beepEnabled?'BẬT':'TẮT');
+};
+
+document.getElementById('manualBtn').onclick=()=>{
+  submitCode(manualEl.value,'manual');
+  manualEl.select();
+};
+
+manualEl.addEventListener('keydown',e=>{
+  if(e.key==='Enter') document.getElementById('manualBtn').click();
+});
+
+window.addEventListener('beforeunload',stopCamera);
+
+// Tự mở camera khi trang tải.
+startCamera();
+</script>
+</body>
+</html>
