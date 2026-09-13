@@ -149,11 +149,11 @@ function validMSSV(code){
 
 function getRuns(data, y, threshold){
   const runs = [];
-  let black = data[y*canvas.width] < threshold;
+  let black = data[(y*canvas.width)*4] < threshold;
   let start = 0;
 
   for(let x=1;x<canvas.width;x++){
-    const isBlack = data[y*canvas.width+x*4] < threshold;
+    const isBlack = data[(y*canvas.width+x)*4] < threshold;
     if(isBlack !== black){
       runs.push({black, width:x-start});
       start=x;
@@ -274,14 +274,12 @@ async function saveToSheet(code){
   }
 
   /*
-   * no-cors được dùng vì trang nằm trên GitHub Pages còn API ở Apps Script.
-   * text/plain là request đơn giản, không tạo CORS preflight.
-   * Với no-cors, trình duyệt không cho đọc response; nhưng request vẫn được gửi.
+   * Sử dụng fetch với CORS header chuẩn.
+   * Google Apps Script cần được cấu hình để cho phép CORS.
    */
   await fetch(API_URL,{
     method:'POST',
-    mode:'no-cors',
-    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    headers:{'Content-Type':'application/json'},
     body:JSON.stringify({mssv:code})
   });
 
